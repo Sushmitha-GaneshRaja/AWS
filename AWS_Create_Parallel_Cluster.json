@@ -1,0 +1,59 @@
+{
+  "name": "Shell_AWS_Create_Parallel_Cluster",
+  "status": "active",
+  "category": [
+    "Application"
+  ],
+  "operating_system": [
+    "centos"
+  ],
+  "platform": [
+    "linux"
+  ],
+  "minimum_requirements": {
+    "ram(MB)": 0.0,
+    "cpu": 0,
+    "disk(MB)": 0.0
+  },
+  "config_type": "shell",
+  "description": "This shell script will create AWS Parallel cluster in a single subnet with sge scheduler.",
+  "script_info": [
+    {
+      "content": "#!/bin/bash\n\n#### TO GET THE VARIABLE REQUIRED FOR THE #pcluster configure command ######\n#### EXECUTE THIS SCRIPT WITH THE ARUGMENTS IN THE RUN TIME  ( EXAMPLE IS SHOWN BELOW )\n#./cluster_conf.sh --aws_region_id ap-northeast-1 --aws_accesskey \"XXXXXXXXXXXXXXXXX\" --aws_secretkey \"XXXXXXXXXXXXX\" --cluster_name \"clustername\" --ec2_keypair_name TELSA --scheduler TWITTER --master_instance_type LINUX-01 --compute_instance_type UBUNTU-01 --minimum_cluster_size 10 --maximum_cluster_size 20 --vpc_id vp-fdanjiuqwer --master_subnet_id subnet-qwervcxz123 --ssh_password \"xxxxxx\"\n\nARGS=$(getopt -o a:b:c:d:e:f:g:h:i:j:k:l:m -l \"aws_region_id:,aws_accesskey:,aws_secretkey:,cluster_name:,ec2_keypair_name:,scheduler:,master_instance_type:,compute_instance_type:,minimum_cluster_size:,maximum_cluster_size:,vpc_id:,master_subnet_id:,ssh_password:\" -- \"$@\");\n\neval set -- \"$ARGS\";\nwhile true; do\n  case \"$1\" in\n    -a|--aws_region_id)\n      shift;\n      if [ -n \"$1\" ]; then\n        aws_region_id=$1;\n        shift;\n      fi\n      ;;\n    -b|--aws_accesskey)\n      shift;\n      if [ -n \"$1\" ]; then\n        aws_accesskey=$1;\n        shift;\n      fi\n      ;;\n    -c|--aws_secretkey)\n      shift;\n      if [ -n \"$1\" ]; then\n        aws_secretkey=$1;\n        shift;\n      fi\n      ;;\n    -d|--cluster_name)\n      shift;\n      if [ -n \"$1\" ]; then\n        cluster_name=$1;\n        shift;\n      fi\n      ;;\n    -e|--ec2_keypair_name)\n      shift;\n      if [ -n \"$1\" ]; then\n        ec2_keypair_name=$1;\n        shift;\n      fi\n      ;;\n    -f|--scheduler)\n      shift;\n      if [ -n \"$1\" ]; then\n        scheduler=$1;\n        shift;\n      fi\n      ;;\n    -g|--master_instance_type)\n      shift;\n      if [ -n \"$1\" ]; then\n        master_instance_type=$1;\n        shift;\n      fi\n      ;;\n    -h|--compute_instance_type)\n      shift;\n      if [ -n \"$1\" ]; then\n        compute_instance_type=$1;\n        shift;\n      fi\n      ;;\n    -i|--minimum_cluster_size)\n      shift;\n      if [ -n \"$1\" ]; then\n        minimum_cluster_size=$1;\n        shift;\n      fi\n      ;;\n    -j|--maximum_cluster_size)\n      shift;\n      if [ -n \"$1\" ]; then\n        maximum_cluster_size=$1;\n        shift;\n      fi\n      ;;\n    -k|--vpc_id)\n      shift;\n      if [ -n \"$1\" ]; then\n        vpc_id=$1;\n        shift;\n      fi\n      ;;\n    -l|--master_subnet_id)\n      shift;\n      if [ -n \"$1\" ]; then\n        master_subnet_id=$1;\n        shift;\n      fi\n      ;;\n    -m|--ssh_password)\n      shift;\n      if [ -n \"$1\" ]; then\n        ssh_password=$1;\n        shift;\n      fi\n      ;;\n    --)\n      shift;\n      break;\n      ;;\n  esac\ndone\n\n\n#-------------------------------------------------------------------------------------------------------------------\n#Install awscli if it is not installed\n#-------------------------------------------------------------------------------------------------------------------\necho $ssh_password\n\necho $ssh_password | sudo -S /usr/local/bin/aws --version\nif [ $? != 0 ]; then\n  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\"\n  unzip awscliv2.zip\n  echo $ssh_password | sudo -S ./aws/install\nfi\n\n#-------------------------------------------------------------------------------------------------------------------\n#Check OS Version and install aws-parallelcluster pip package if it is not installed\n#-------------------------------------------------------------------------------------------------------------------\n\nOS=$(awk -F= '/^ID=/{print $2}' /etc/os-release)\necho \"Operating System is\" $OS\n\nif [[ $OS == *centos* ]]; then\n  echo $ssh_password | sudo -S /usr/local/bin/pip3.7 list | grep aws-parallelcluster\n  if [ $? != 0 ]; then\n    echo \"Installing aws-parallelcluster\"\n    echo $ssh_password | sudo -S /usr/local/bin/pip3.7 install aws-parallelcluster\n  fi\nfi\n\n\nif [[ $OS == *ubuntu* ]]; then\n  echo $ssh_password | sudo -S pip3.7 list | grep aws-parallelcluster\n  if [ $? != 0 ]; then\n    echo \"Installing aws-parallelcluster\"\n    echo $ssh_password | sudo -S pip3.7 install aws-parallelcluster\n  fi\nfi\n\n\n#----------------------------------------------------------------------------------------------------------------------\n#Create a config file to create parallel cluster\n#----------------------------------------------------------------------------------------------------------------------\necho $ssh_password | sudo -S mkdir -p /tmp/awsparallelcluster\ncurrentDate=$(date +\"%Y-%m-%d\")\ncat << EOF > /tmp/awsparallelcluster/config_$currentDate\n[aws]\naws_region_name = $aws_region_id\n\n[aliases]\nssh = ssh {CFN_USER}@{MASTER_IP} {ARGS}\n\n[global]\ncluster_template = default\nupdate_check = true\nsanity_check = true\n\n\n[cluster default]\nkey_name = $ec2_keypair_name\nscheduler = $scheduler\nmaster_instance_type = $master_instance_type\nbase_os = alinux2\nvpc_settings = default\ncompute_instance_type = $compute_instance_type\ninitial_queue_size = 1\nmax_queue_size = 1\nmaintain_initial_size = true\n\n\n[vpc default]\nvpc_id = $vpc_id\nmaster_subnet_id = $master_subnet_id\nEOF\n\n\n#---------------------------------------------------------------------------------------------------------------------------\n# Configure aws cli\n#---------------------------------------------------------------------------------------------------------------------------\necho $ssh_password | sudo -S /usr/local/bin/aws configure set default.region $aws_region_id\necho $ssh_password | sudo -S /usr/local/bin/aws configure set aws_access_key_id $aws_accesskey\necho $ssh_password | sudo -S /usr/local/bin/aws configure set aws_secret_access_key $aws_secretkey\n\n\n#---------------------------------------------------------------------------------------------------------------------------\n# Create Parallecluster\n#---------------------------------------------------------------------------------------------------------------------------\necho $ssh_password | sudo -S /usr/local/bin/pcluster create $cluster_name -c /tmp/awsparallelcluster/config_$currentDate -nr\n",
+      "path_type": "file"
+    }
+  ],
+  "input_source": "Script",
+  "inventory_attributes": {},
+  "scanned_parameters": "",
+  "parameters": {
+    "aws_region_id": "us-east-1",
+    "ssh_password": "xxxxxxxx",
+    "ec2_keypair_name": "xxxxx.pem",
+    "master_instance_type": "t3.micro",
+    "cluster_name": "testcluster",
+    "maximum_cluster_size": "2",
+    "scheduler": "sge",
+    "compute_instance_type": "t3.micro",
+    "aws_accesskey": "xxxxxxxxxxxx",
+    "vpc_id": "vpc-9987834",
+    "aws_secretkey": "xxxxxxxxxxxx",
+    "minimum_cluster_size": "1",
+    "master_subnet_id": "subnet-22424"
+  },
+  "scope": "global",
+  "uri": "shel/application/lin/tenant/3iddh",
+  "config_version": "default",
+  "metadata": {
+    "shell_file": "AWS_Create_Parallel_Cluster.sh",
+    "is_scanned": "false",
+    "license": "",
+    "tags": {}
+  },
+  "dependencies": [],
+  "is_deleted": false,
+  "is_temp": false,
+  "components": [],
+  "file_authentication": true,
+  "playbook_yaml": ""
+}

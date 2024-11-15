@@ -1,0 +1,203 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Template to install CloudWatchAgent on ubuntu. It was validated on ubuntu 16",
+  "Parameters": {
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+    },
+    "InstanceType": {
+      "Description": "EC2 instance type",
+      "Type": "String",
+      "Default": "t2.micro",
+      "AllowedValues" : ["t2.micro", "t2.small", "t2.medium", "t2.large", "t2.xlarge", "m1.small", "m1.large"],
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "IAMRole": {
+      "Description": "EC2 attached IAM role",
+      "Type": "String",
+      "Default": "cloudwatch",
+      "ConstraintDescription": "must be an existing IAM role which will be attached to EC2 instance."
+    },
+    "SSHLocation": {
+      "Description": "The IP address range that can be used to SSH to the EC2 instances",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "0.0.0.0/0",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    }
+  },
+  "Mappings": {
+    "AMIs": {
+      "us-east-1": {
+        "Name": "ami-08bc77a2c7eb2b1da"
+      },
+      "us-east-2": {
+        "Name": "ami-08cec7c429219e339"
+      },
+      "ap-south-1": {
+        "Name": "ami-0c28d7c6dd94fb3a7"
+      },
+      "ap-southeast-1": {
+        "Name": "ami-0ca13b3dabeb6c66d"
+      },
+      "ap-southeast-2": {
+        "Name": "ami-02d7e25c1cfdd5695"
+      },
+      "eu-west-1": {
+        "Name": "ami-0f630a3f40b1eb0b8"
+      },
+      "eu-west-2": {
+        "Name": "ami-0a590332f9f499197"
+      },      
+      "ca-central-1": {
+        "Name": "ami-0eb3e12d3927c36ef"
+      },
+      "ap-northeast-1": {
+        "Name": "ami-03344c819e1ac354d"
+      },
+      "ap-northeast-2": {
+        "Name": "ami-0c5a717974f63b04c"
+      },
+      "us-west-1": {
+        "Name": "ami-094f0176b0d009d9f"
+      },
+      "us-west-2": {
+        "Name": "ami-02d0ea44ae3fe9561"
+      },
+      "eu-central-1": {
+        "Name": "ami-03d8059563982d7b0"
+      },
+      "eu-north-1": {
+        "Name": "ami-017ad30b324faed9b"
+      },
+      
+  },
+  "Resources": {
+    "EC2Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "default": [
+              "01_setupCfnHup",
+              "02_config-amazon-cloudwatch-agent",
+              "03_restart_amazon-cloudwatch-agent"
+            ],
+            "UpdateEnvironment": [
+              "02_config-amazon-cloudwatch-agent",
+              "03_restart_amazon-cloudwatch-agent"
+            ]
+          },
+          "02_config-amazon-cloudwatch-agent": {
+            "files": {
+              "/opt/aws/amazon-cloudwatch-agent/bin/config.json": {
+                "content": {
+                  "Fn::Sub": "{\"metrics\": {\"append_dimensions\": {\"InstanceId\": \"${!aws:InstanceId}\", \"InstanceType\": \"${!aws:InstanceType}\", \"ImageId\": \"${!aws:ImageId}\"}, \"metrics_collected\": {\"statsd\": {\"metrics_aggregation_interval\": 30, \"service_address\": \":8125\", \"metrics_collection_interval\": 30}, \"mem\": {\"metrics_collection_interval\": 30, \"measurement\": [\"mem_used_percent\"]}, \"netstat\": {\"metrics_collection_interval\": 30, \"measurement\": [\"tcp_established\", \"tcp_time_wait\"]}, \"diskio\": {\"metrics_collection_interval\": 30, \"resources\": [\"*\"], \"measurement\": [\"io_time\", \"write_bytes\", \"read_bytes\", \"writes\", \"reads\"]}, \"disk\": {\"metrics_collection_interval\": 30, \"resources\": [\"*\"], \"measurement\": [\"used_percent\", \"inodes_free\"]}, \"cpu\": {\"totalcpu\": false, \"metrics_collection_interval\": 30, \"resources\": [\"*\"], \"measurement\": [\"cpu_usage_idle\", \"cpu_usage_iowait\", \"cpu_usage_user\", \"cpu_usage_system\"]}, \"swap\": {\"metrics_collection_interval\": 30, \"measurement\": [\"swap_used_percent\"]}}}, \"agent\": {\"metrics_collection_interval\": 30, \"run_as_user\": \"ubuntu\"}}\n"
+                }
+              }
+            }
+          },
+          "03_restart_amazon-cloudwatch-agent": {
+            "commands": {
+              "01_stop_service": {
+                "command": "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop"
+              },
+              "02_start_service": {
+                "command": "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s"
+              }
+            }
+          },
+          "01_setupCfnHup": {
+            "files": {
+              "/etc/cfn/cfn-hup.conf": {
+                "content": {
+                  "Fn::Sub": "[main]\nstack=${AWS::StackId}\nregion=${AWS::Region}\ninterval=1\n"
+                },
+                "mode": "000400",
+                "owner": "root",
+                "group": "root"
+              },
+              "/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf": {
+                "content": {
+                  "Fn::Sub": "[cfn-auto-reloader-hook]\ntriggers=post.update\npath=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent\naction=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets UpdateEnvironment\nrunas=root\n"
+                },
+                "mode": "000400",
+                "owner": "root",
+                "group": "root"
+              },
+              "/lib/systemd/system/cfn-hup.service": {
+                "content": {
+                  "Fn::Sub": "[Unit]\nDescription=cfn-hup daemon\n[Service]\nType=simple\nExecStart=/opt/aws/bin/cfn-hup\nRestart=always\n[Install]\nWantedBy=multi-user.target\n"
+                }
+              }
+            },
+            "commands": {
+              "01enable_cfn_hup": {
+                "command": {
+                  "Fn::Sub": "systemctl enable cfn-hup.service\n"
+                }
+              },
+              "02start_cfn_hup": {
+                "command": {
+                  "Fn::Sub": "systemctl start cfn-hup.service\n"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "IamInstanceProfile": {
+          "Ref": "IAMRole"
+        },
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "ImageId": {
+          "Fn::FindInMap": [
+            "AMIs",
+            {
+              "Ref": "AWS::Region"
+            },
+            "Name"
+          ]
+        },
+        "SecurityGroups": [{
+          "Ref": "InstanceSecurityGroup"
+        }],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": "#!/bin/bash\nwget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb\ndpkg -i /tmp/amazon-cloudwatch-agent.deb\napt-get update -y\napt-get  install -y python-pip\neasy_install --script-dir /opt/aws/bin  https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets default\n/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}\n"
+          }
+        }
+      },
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Count": 1,
+          "Timeout": "PT15M"
+        }
+      }
+    },
+    "InstanceSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Enable SSH access via port 22",
+        "SecurityGroupIngress": [{
+          "IpProtocol": "tcp",
+          "FromPort": "22",
+          "ToPort": "22",
+          "CidrIp": {
+            "Ref": "SSHLocation"
+          }
+        }]
+      }
+    }
+  }
+}
